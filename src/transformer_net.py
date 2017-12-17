@@ -55,6 +55,6 @@ class transformer_net(nn.Module):
 
         y = F.relu(self.norm4(self.deconv1(y)))
         y = F.relu(self.norm5(self.deconv2(y)))
-        y = F.tanh(self.deconv3(y))
+        y = (self.deconv3(y))
 
         return y

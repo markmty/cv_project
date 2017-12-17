@@ -14,11 +14,12 @@ is_cuda = torch.cuda.is_available()
 # parameters
 IMAGE_SIZE=256
 BATCH_SIZE=4
-NUM_WORKERS=4
+NUM_WORKERS=1
 LEARNING_RATE=0.001
 EPOCHS=1
 CONTENT_WEIGHT=1.0
 STYLE_WEIGHT=5.0
+STYLE_SIZE=256
 SEED=1
 
 # file path
@@ -39,14 +40,14 @@ transforms = transforms.Compose([
     transforms.Lambda(lambda x: x.mul(255))])
 
 # load training dataset
-train_dataset = datasets.ImageFolder(DATASET_PATH, transforms)
+train_dataset = datasets.ImageFolder(DATASET_PATH, transform=transforms)
 train_loader = DataLoader(train_dataset, batch_size=BATCH_SIZE, num_workers=NUM_WORKERS)
 
 # init vgg16
-vgg16 = vgg16()
-vgg16.load_state_dict(torch.load(MODEL_PATH+'/vgg16.weight'))
+vgg = vgg16()
+vgg.load_state_dict(torch.load(MODEL_PATH+'/vgg16.weight'))
 if is_cuda:
-    vgg16.cuda()
+    vgg.cuda()
 
 # init transformer net
 trans_net = transformer_net()
@@ -87,7 +88,7 @@ def gram_matrix(y):
     gram = features.bmm(features_t) /(ch*h*w)
     return gram
 
-style_image = load_image(STYLE_IMAGE_PATH, IMAGE_SIZE)
+style_image = load_image(STYLE_IMAGE_PATH, STYLE_SIZE)
 style_image = style_image.repeat(BATCH_SIZE, 1, 1, 1)
 style_image = rgb2bgr(style_image)
 if is_cuda:
@@ -95,14 +96,14 @@ if is_cuda:
 style_x = Variable(style_image, volatile=True)
 style_x = subtract_mean(style_x)
 
-features_style = vgg16(style_x)
+features_style = vgg(style_x)
 gram_style = [gram_matrix(y) for y in features_style]
-trans_net.train()
+
 for i in range(EPOCHS):
-    #count = 0
+    trans_net.train()
     for batch_id, batch in enumerate(train_loader):
         optimizer.zero_grad()
-        current_bs = len(batch[1])
+        n_batch = len(batch[0])
         data = batch[0].clone()
         data = rgb2bgr(data)
 
@@ -112,11 +113,11 @@ for i in range(EPOCHS):
         x = Variable(data.clone())
         y = trans_net(x)
         y = subtract_mean(y)
-        features_y = vgg16(y)
+        features_y = vgg(y)
 
         x_content = Variable(data.clone(), volatile=True)
         x_content = subtract_mean(x_content)
-        features_x_content = vgg16(x_content)
+        features_x_content = vgg(x_content)
 
         feature_relu = Variable(features_x_content[1].data, requires_grad=False)
         content_loss = CONTENT_WEIGHT * mse_loss(features_y[1], feature_relu)
@@ -125,7 +126,7 @@ for i in range(EPOCHS):
         for j in range(len(features_y)):
             gram1 = Variable(gram_style[j].data, requires_grad=False)
             gram2 = gram_matrix(features_y[j])
-            style_loss += STYLE_WEIGHT * mse_loss(gram2, gram1[0:current_bs, :, :])
+            style_loss += STYLE_WEIGHT * mse_loss(gram2, gram1[:n_batch, :, :])
 
         loss = content_loss + style_loss
         loss.backward()
